@@ -1,0 +1,16 @@
+# docker-compose.yml
+version: "3.8"
+
+services:
+  app:
+    build: .
+    image: intelligent_technology:latest
+    container_name: intelligent_technology
+    restart: always
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
