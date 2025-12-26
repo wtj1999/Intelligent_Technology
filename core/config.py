@@ -52,18 +52,18 @@ class Settings(BaseSettings):
         {
             "tongcheng_rk": {
                 "prod": {
-                    "host": "10.36.94.17",
+                    "host": "10.38.30.216",
                     "port": 19030,
-                    "user": "gdmo",
-                    "password": "gdmo@123!!",
-                    "database": "ai_pack",
+                    "user": "gdmo_aid",
+                    "password": "gdmo_aid@123!!",
+                    "database": "iot",
                 },
                 "test": {
-                    "host": "10.36.94.17",
+                    "host": "10.38.30.216",
                     "port": 19030,
-                    "user": "gdmo",
-                    "password": "gdmo@123!!",
-                    "database": "ai_pack",
+                    "user": "gdmo_aid",
+                    "password": "gdmo_aid@123!!",
+                    "database": "iot",
                 },
             }
         }

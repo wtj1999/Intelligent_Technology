@@ -23,6 +23,11 @@ class RuKeQuery(BaseModel):
     PRKDH020: List[float] = Field(..., description="入壳D电芯平移轴当前位置")
 
 
+class SegmentItem(BaseModel):
+    label: str = Field(..., description="阶段名称，如 '推80%入壳'")
+    range: Tuple[int, int] = Field(..., description="闭区间的开始和结束索引 (start, end)")
+
+
 class PressureBlock(BaseModel):
     FirstPressureMax: Optional[float] = None
     FirstPressureSlope: Optional[float] = None
@@ -36,11 +41,11 @@ class StationResult(BaseModel):
     gaiban_code: Optional[Any] = None
     status: str = Field(..., description='Either "OK" or "NG"')
     rising_segments: Optional[List[Tuple[int, int]]] = None
-    all_segments: Optional[Dict[str, Tuple[int, int]]] = None
+    all_segments: Optional[List[SegmentItem]] = None
     pressures: Optional[PressureBlock] = None
-    pressure1_series: List[float]
-    pressure2_series: List[float]
-    position_series: List[float]
+    pressure1_series: List[float] = Field(default_factory=list)
+    pressure2_series: List[float] = Field(default_factory=list)
+    position_series: List[float] = Field(default_factory=list)
 
 
 class RuKeResponse(BaseModel):

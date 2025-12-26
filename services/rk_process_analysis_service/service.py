@@ -246,24 +246,48 @@ class RuKeService(BaseService):
             station_res["status"] = "OK"
 
         station_res["rising_segments"] = [seg1p, seg2p, seg3p]
-        station_res["all_segments"] = {
-            "推80%入壳": (1, seg1p[1]),
-            "静置": (seg1p[1] + 1, 71),
-            "回退": (72, 98),
-            "静置2": (99, seg2p[0]),
-            "前进推15%": (seg2p[0] + 1, seg2p[1]),
-            "静置3": (seg2p[1] + 1, seg3p[0]),
-            "夹爪头推5%": (seg3p[0] + 1, seg3p[1]),
-            "回退1": (seg3p[1] + 1, len(position_arr))
-        }
+        station_res["all_segments"] = [
+            {
+                'label': '推80%入壳',
+                'range': (1, seg1p[1])
+            },
+            {
+                'label': '静置',
+                'range': (seg1p[1] + 1, 71)
+            },
+            {
+                'label': '回退',
+                'range': (72, 98)
+            },
+            {
+                'label': '静置2',
+                'range': (99, seg2p[0])
+            },
+            {
+                'label': '前进推15%',
+                'range': (seg2p[0] + 1, seg2p[1])
+            },
+            {
+                'label': '静置3',
+                'range': (seg2p[1] + 1, seg3p[0])
+            },
+            {
+                'label': '夹爪头推5%',
+                'range': (seg2p[1] + 1, seg3p[0])
+            },
+            {
+                'label': '回退1',
+                'range': (seg3p[1] + 1, len(position_arr))
+            }
+        ]
         station_res["pressures"] = pressures
 
         return station_res
 
-    def series_detect(self, arr1, arr2):
-        with open('services/rk_process_analysis_service/data/saved_arrays.arr1.kshape_model.json', 'r', encoding='utf-8') as file:
+    def series_detect(self, arr1, arr2, station):
+        with open(f'services/rk_process_analysis_service/data/model_for_station_{station}/saved_arrays.arr1.kshape_model.json', 'r', encoding='utf-8') as file:
             model1 = json.load(file)
-        with open('services/rk_process_analysis_service/data/saved_arrays.arr2.kshape_model.json', 'r', encoding='utf-8') as file:
+        with open(f'services/rk_process_analysis_service/data/model_for_station_{station}/saved_arrays.arr2.kshape_model.json', 'r', encoding='utf-8') as file:
             model2 = json.load(file)
 
         r1 = self.score_series_with_model(model1, arr1)
@@ -301,7 +325,7 @@ class RuKeService(BaseService):
             position_arr = position_arr[start_idx:] if position_arr.size > start_idx else np.array([], dtype=float)
 
             threshold_detect_result = self.threshold_detect(arr1, arr2, position_arr)
-            series_detect_result = self.series_detect(arr1, arr2)
+            series_detect_result = self.series_detect(arr1, arr2, st)
 
             status = "NG" if threshold_detect_result.get('status') == "NG" or series_detect_result.get('status') == "NG" else "OK"
 
