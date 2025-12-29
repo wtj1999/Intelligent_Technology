@@ -3,12 +3,12 @@ version: "3.7"
 
 services:
   app:
-    build: .
+    #build: .
     image: intelligent_technology:latest
     container_name: intelligent_technology
     restart: always
     ports:
-      - "8000:8000"
+      - "8010:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
       interval: 30s
