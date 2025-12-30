@@ -1,5 +1,6 @@
 import numpy as np
 import json
+import os
 from services.base import BaseService
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -284,10 +285,17 @@ class RuKeService(BaseService):
 
         return station_res
 
-    def series_detect(self, arr1, arr2, station):
-        with open(f'services/rk_process_analysis_service/data/model_for_station_{station}/saved_arrays.arr1.kshape_model.json', 'r', encoding='utf-8') as file:
+    def series_detect(self, arr1, arr2, station, device_code):
+        base_dir = os.path.join("services/rk_process_analysis_service/data", device_code)
+        station_dir = os.path.join(base_dir, f"station{station}")
+        os.makedirs(station_dir, exist_ok=True)
+        model1_path = os.path.join(station_dir, "arr1_kshape_model.json")
+        model2_path = os.path.join(station_dir, "arr2_kshape_model.json")
+
+        with open(model1_path, 'r', encoding='utf-8') as file:
             model1 = json.load(file)
-        with open(f'services/rk_process_analysis_service/data/model_for_station_{station}/saved_arrays.arr2.kshape_model.json', 'r', encoding='utf-8') as file:
+
+        with open(model2_path, 'r', encoding='utf-8') as file:
             model2 = json.load(file)
 
         r1 = self.score_series_with_model(model1, arr1)
@@ -325,7 +333,7 @@ class RuKeService(BaseService):
             position_arr = position_arr[start_idx:] if position_arr.size > start_idx else np.array([], dtype=float)
 
             threshold_detect_result = self.threshold_detect(arr1, arr2, position_arr)
-            series_detect_result = self.series_detect(arr1, arr2, st)
+            series_detect_result = self.series_detect(arr1, arr2, st, device_code)
 
             status = "NG" if threshold_detect_result.get('status') == "NG" or series_detect_result.get('status') == "NG" else "OK"
 
