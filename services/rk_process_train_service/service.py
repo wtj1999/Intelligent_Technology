@@ -25,7 +25,7 @@ class RuKeTrainService(BaseService):
         self.target_len = 0
         self.detect_series_keys = ['arr1', 'arr2']
         self.threshold_quantile = 0.99
-        self.chunk_minutes = 5
+        self.chunk_minutes = 30
 
     async def startup(self) -> None:
         self._ready = True
