@@ -1,14 +1,19 @@
 import numpy as np
 import json
 import os
+import logging
 from services.base import BaseService
 from typing import Any, Dict, List, Optional, Tuple
 
+logger = logging.getLogger(__name__)
 
 class RuKeService(BaseService):
     def __init__(self, kafka_client=None):
         self.kafka_client = kafka_client
         self._ready = False
+        self.max_thresh = 10.0
+        self.first_up_pressure_slope_thresh = 0.57
+        self.first_down_pressure_slope_thresh = 0.68
 
     async def startup(self) -> None:
         self._ready = True
@@ -141,13 +146,13 @@ class RuKeService(BaseService):
         return {"score": score, "threshold": float(model["threshold"]), "is_anomaly": bool(is_anom),
                 "dists": dists.tolist()}
 
-    def threshold_detect(self, arr1, arr2, position_arr):
+    def threshold_detect(self, arr1, arr2, position_arr, station, device_code):
 
         slope_thresh = 0.1
         min_len = 5
-        win1_lo, win1_hi = 1, 80
-        win2_lo, win2_hi = 120, 230
-        max_thresh = 10.0
+        win1_lo, win1_hi = 1, 70
+        win2_lo, win2_hi = 71, 300
+
 
         station_res = {
             "status": "NG",
@@ -155,6 +160,9 @@ class RuKeService(BaseService):
             "all_segments": None,
             "pressures": None
         }
+
+        if arr1.size > 390:
+            return station_res
 
         slopes = self.pointwise_slope(position_arr)
         mask = slopes > slope_thresh
@@ -203,45 +211,62 @@ class RuKeService(BaseService):
             seg_a2 = slice_arr(a2)
             if seg_a1.size == 0 and seg_a2.size == 0:
                 return {"max": None, "slope": None, "arr1": [], "arr2": []}
-            m1 = float(np.nanmax(seg_a1)) if seg_a1.size > 0 else -np.inf
-            m2 = float(np.nanmax(seg_a2)) if seg_a2.size > 0 else -np.inf
-            overall_max = None
-            if np.isfinite(m1) or np.isfinite(m2):
-                overall_max = float(max(m1 if np.isfinite(m1) else -np.inf, m2 if np.isfinite(m2) else -np.inf))
+            m1 = float(np.nanmax(seg_a1)) if seg_a1.size > 0 else 0
+            m2 = float(np.nanmax(seg_a2)) if seg_a2.size > 0 else 0
 
             def seg_slope(seg):
                 if seg.size < 2:
                     return 0.0
-                idx_max = int(np.argmax(seg))
-                idx_min = int(np.argmin(seg))
-                max_val = float(seg[idx_max])
-                min_val = float(seg[idx_min])
-                idx_diff = idx_max - idx_min
-                if idx_diff == 0:
-                    return 0.0
-                return abs(float((max_val - min_val) / idx_diff))
+                n = seg.size
+                slopes = np.zeros(n, dtype=float)
+                slopes[-1] = (seg[-1] - seg[-2])
+                for i in range(0, n - 1):
+                    slopes[i] = (seg[i + 1] - seg[i]) / 1.0
+                return max(slopes)
 
             s_a1 = seg_slope(seg_a1) if seg_a1.size > 0 else 0.0
             s_a2 = seg_slope(seg_a2) if seg_a2.size > 0 else 0.0
-            mean_slope = float((s_a1 + s_a2) / 2.0)
-            return {"max": overall_max, "slope": mean_slope, "arr1": seg_a1.tolist(), "arr2": seg_a2.tolist()}
+            return {"arr1_max": m1, "arr2_max": m2, "arr1_slope": s_a1, "arr2_slope": s_a2, "arr1": seg_a1.tolist(), "arr2": seg_a2.tolist()}
 
         m1 = compute_metrics(arr1, arr2, seg1p[0], seg1p[1])
         m2 = compute_metrics(arr1, arr2, seg2p[0], seg2p[1])
         m3 = compute_metrics(arr1, arr2, seg3p[0], seg3p[1])
 
         pressures = {
-            "FirstPressureMax": m1["max"],
-            "FirstPressureSlope": m1["slope"],
-            "SecondPressureMax": m2["max"],
-            "SecondPressureSlope": m2["slope"],
-            "ThirdPressureMax": m3["max"],
-            "ThirdPressureSlope": m3["slope"],
+            "FirstUpPressureMax": m1["arr1_max"],
+            "FirstDownPressureMax": m1["arr2_max"],
+            "FirstUpPressureSlope": m1["arr1_slope"],
+            "FirstDownPressureSlope": m1["arr2_slope"],
+            "SecondUpPressureMax": m2["arr1_max"],
+            "SecondDownPressureMax": m2["arr2_max"],
+            "SecondUpPressureSlope": m2["arr1_slope"],
+            "SecondDownPressureSlope": m2["arr2_slope"],
+            "ThirdUpPressureMax": m3["arr1_max"],
+            "ThirdDownPressureMax": m3["arr2_max"],
+            "ThirdUpPressureSlope": m3["arr1_slope"],
+            "ThirdDownPressureSlope": m3["arr2_slope"],
         }
 
-        three_max_vals = [pressures[k] for k in ["FirstPressureMax", "SecondPressureMax", "ThirdPressureMax"]]
+        three_max_vals = [pressures[k] for k in ["FirstUpPressureMax", "SecondUpPressureMax", "ThirdUpPressureMax"]]
 
-        if any(v > max_thresh for v in three_max_vals):
+        base_dir = os.path.join("services/rk_process_analysis_service/data", device_code)
+        station_dir = os.path.join(base_dir, f"station{station}")
+        os.makedirs(station_dir, exist_ok=True)
+        model1_path = os.path.join(station_dir, "arr1_kshape_model.json")
+        model2_path = os.path.join(station_dir, "arr2_kshape_model.json")
+
+        with open(model1_path, 'r', encoding='utf-8') as file:
+            model1 = json.load(file)
+
+        with open(model2_path, 'r', encoding='utf-8') as file:
+            model2 = json.load(file)
+
+        first_up_pressure_slope_thresh =  model1.get('slope_arr_quantile')
+        first_down_pressure_slope_thresh = model2.get('slope_arr_quantile')
+
+        if (pressures['FirstUpPressureSlope'] > first_up_pressure_slope_thresh
+                or pressures['FirstDownPressureSlope'] > first_down_pressure_slope_thresh
+                or any(v > self.max_thresh for v in three_max_vals)):
             station_res["status"] = "NG"
         else:
             station_res["status"] = "OK"
@@ -274,7 +299,7 @@ class RuKeService(BaseService):
             },
             {
                 'label': '夹爪头推5%',
-                'range': (seg2p[1] + 1, seg3p[0])
+                'range': (seg3p[0] + 1, seg3p[1])
             },
             {
                 'label': '回退1',
@@ -301,6 +326,7 @@ class RuKeService(BaseService):
         r1 = self.score_series_with_model(model1, arr1)
         r2 = self.score_series_with_model(model2, arr2)
         combined_score = max(r1["score"], r2["score"])
+        logger.info("上压力曲线distance: %f, 下压力曲线distance: %f, 上压力曲线阈值: %f, 下压力曲线阈值: %f", r1["score"], r2["score"], model1["threshold"], model2["threshold"])
         combined_threshold = max(model1["threshold"], model2["threshold"])
         is_anom = 'NG' if combined_score > combined_threshold else 'OK'
 
@@ -315,7 +341,7 @@ class RuKeService(BaseService):
             "device_code": device_code,
             "device_time": device_time,
             "tenant": tenant,
-            "stations": {},
+            "stations": [],
         }
 
         active_stations = self.find_active_stations(payload)
@@ -332,12 +358,13 @@ class RuKeService(BaseService):
             arr2 = arr2[start_idx:] if arr2.size > start_idx else np.array([], dtype=float)
             position_arr = position_arr[start_idx:] if position_arr.size > start_idx else np.array([], dtype=float)
 
-            threshold_detect_result = self.threshold_detect(arr1, arr2, position_arr)
+            threshold_detect_result = self.threshold_detect(arr1, arr2, position_arr, st, device_code)
             series_detect_result = self.series_detect(arr1, arr2, st, device_code)
 
             status = "NG" if threshold_detect_result.get('status') == "NG" or series_detect_result.get('status') == "NG" else "OK"
 
             station_res = {
+                "station": st,
                 "gaiban_code": payload.get(f"PRKDH{st:03d}"),
                 "status": status,
                 "rising_segments": threshold_detect_result.get('rising_segments'),
@@ -348,7 +375,7 @@ class RuKeService(BaseService):
                 "position_series": list(position_arr)
             }
 
-            pkg["stations"][f"station_{st}"] = station_res
+            pkg["stations"].append(station_res)
 
         return pkg
 

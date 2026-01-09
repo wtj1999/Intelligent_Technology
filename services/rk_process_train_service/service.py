@@ -24,8 +24,8 @@ class RuKeTrainService(BaseService):
         self.n_clusters = 3
         self.target_len = 0
         self.detect_series_keys = ['arr1', 'arr2']
-        self.threshold_quantile = 0.99
-        self.chunk_minutes = 30
+        self.threshold_quantile = 0.999
+        self.chunk_minutes = 10
 
     async def startup(self) -> None:
         self._ready = True
@@ -202,7 +202,8 @@ class RuKeTrainService(BaseService):
             raise HTTPException(status_code=500, detail=f"Chunked DB queries failed: {e}\n{tb}")
 
 
-        station_saved: Dict[str, Dict[int, Dict[str, Dict[str, List[float]]]]] = {}
+        # station_saved: Dict[str, Dict[int, Dict[str, Dict[str, List[float]]]]] = {}
+        station_saved: Dict[str, Dict[int, Dict[str, Dict[str, Any]]]] = {}
 
         seen_per_device: Dict[str, Dict[int, set]] = {}
 
@@ -263,13 +264,30 @@ class RuKeTrainService(BaseService):
                     else:
                         ap_trim = np.array([], dtype=float)
 
-                    station_saved[device_str][st][gaiban_str] = {
-                        "arr1": list(map(float, a1_trim.tolist())) if a1_trim.size > 0 else [],
-                        "arr2": list(map(float, a2_trim.tolist())) if a2_trim.size > 0 else [],
-                        "position_arr": list(map(float, ap_trim.tolist())) if ap_trim.size > 0 else []
-                    }
+                    if a1_trim.size > 350:
+                        continue
+                    else:
+                        def seg_slope(seg):
+                            if seg.size < 2:
+                                return 0.0
+                            n = seg.size
+                            slopes = np.zeros(n, dtype=float)
+                            slopes[-1] = (seg[-1] - seg[-2])
+                            for i in range(0, n - 1):
+                                slopes[i] = (seg[i + 1] - seg[i]) / 1.0
+                            return max(slopes)
 
-                    seen_per_device[device_str][st].add(gaiban_str)
+                        s_a1 = seg_slope(a1_trim[:45]) if a1_trim.size > 45 else 0.0
+                        s_a2 = seg_slope(a2_trim[:45]) if a2_trim.size > 45 else 0.0
+                        station_saved[device_str][st][gaiban_str] = {
+                            "arr1": list(map(float, a1_trim.tolist())) if a1_trim.size > 0 else [],
+                            "arr2": list(map(float, a2_trim.tolist())) if a2_trim.size > 0 else [],
+                            "position_arr": list(map(float, ap_trim.tolist())) if ap_trim.size > 0 else [],
+                            "slope_arr1": s_a1,
+                            "slope_arr2": s_a2
+                        }
+
+                        seen_per_device[device_str][st].add(gaiban_str)
 
             written = {}
             for device_str, stations_dict in station_saved.items():
@@ -320,6 +338,16 @@ class RuKeTrainService(BaseService):
                         "centers": centers.tolist(),
                         "quantile": self.threshold_quantile,
                     }
+
+                    slope_arr = [v.get(f"slope_{series_key}") for v in saved.values() if f"slope_{series_key}" in v]
+
+                    model.update(
+                        {
+                            "slope_arr_mean": np.mean(slope_arr),
+                            "slope_arr_std": np.std(slope_arr),
+                            "slope_arr_quantile": np.quantile(slope_arr, self.threshold_quantile),
+                        }
+                    )
 
                     base_dir = os.path.join("services/rk_process_analysis_service/data", device_str)
                     station_dir = os.path.join(base_dir, f"station{st}")

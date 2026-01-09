@@ -29,20 +29,27 @@ class SegmentItem(BaseModel):
 
 
 class PressureBlock(BaseModel):
-    FirstPressureMax: Optional[float] = None
-    FirstPressureSlope: Optional[float] = None
-    SecondPressureMax: Optional[float] = None
-    SecondPressureSlope: Optional[float] = None
-    ThirdPressureMax: Optional[float] = None
-    ThirdPressureSlope: Optional[float] = None
+    FirstUpPressureMax: Optional[float] = None
+    FirstDownPressureMax: Optional[float] = None
+    FirstUpPressureSlope: Optional[float] = None
+    FirstDownPressureSlope: Optional[float] = None
+    SecondUpPressureMax: Optional[float] = None
+    SecondDownPressureMax: Optional[float] = None
+    SecondUpPressureSlope: Optional[float] = None
+    SecondDownPressureSlope: Optional[float] = None
+    ThirdUpPressureMax: Optional[float] = None
+    ThirdDownPressureMax: Optional[float] = None
+    ThirdUpPressureSlope: Optional[float] = None
+    ThirdDownPressureSlope: Optional[float] = None
 
 
 class StationResult(BaseModel):
+    station: int = Field(..., description="例如 1..4")
     gaiban_code: Optional[Any] = None
     status: str = Field(..., description='Either "OK" or "NG"')
-    rising_segments: Optional[List[Tuple[int, int]]] = None
-    all_segments: Optional[List[SegmentItem]] = None
-    pressures: Optional[PressureBlock] = None
+    rising_segments: Optional[List[Tuple[int, int]]]
+    all_segments: Optional[List[SegmentItem]]
+    pressures: Optional[PressureBlock]
     pressure1_series: List[float] = Field(default_factory=list)
     pressure2_series: List[float] = Field(default_factory=list)
     position_series: List[float] = Field(default_factory=list)
@@ -52,4 +59,4 @@ class RuKeResponse(BaseModel):
     device_code: Optional[str] = None
     device_time: Optional[str] = None
     tenant: Optional[str] = None
-    stations: Dict[str, StationResult] = Field(default_factory=dict)
+    stations: List[StationResult] = Field(default_factory=list)
