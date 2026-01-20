@@ -1,5 +1,5 @@
 # ===== Dockerfile =====
-FROM python:3.11-slim
+FROM python:3.8-slim
 
 # 切回 root 并设置工作目录
 USER root
