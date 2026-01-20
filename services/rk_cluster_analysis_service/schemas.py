@@ -12,6 +12,7 @@ class ClusterLabelItem(BaseModel):
     gaiban: str = Field(..., description="盖板码（样本键）")
     label: int = Field(..., description="簇标签（整数）")
     series: List[float] = Field(..., description="原始序列（重采样前）")
+    abnormal: int = Field(..., description="是否异常（整数）")
 
 class ClusterResult(BaseModel):
     labels: List[ClusterLabelItem] = Field(default_factory=list, description="每个样本的 gaiban/label/series")

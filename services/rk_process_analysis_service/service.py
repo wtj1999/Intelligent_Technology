@@ -149,6 +149,7 @@ class RuKeService(BaseService):
     def threshold_detect(self, arr1, arr2, position_arr, station, device_code):
 
         slope_thresh = 0.1
+        drop_slope_thresh = -0.1
         min_len = 5
         win1_lo, win1_hi = 1, 70
         win2_lo, win2_hi = 71, 300
@@ -162,13 +163,22 @@ class RuKeService(BaseService):
         }
 
         if arr1.size > 390:
-            return station_res
+            return {
+            "status": "Unknown",
+            "rising_segments": None,
+            "all_segments": None,
+            "pressures": None
+        }
 
         slopes = self.pointwise_slope(position_arr)
         mask = slopes > slope_thresh
 
         runs = self.find_true_runs(mask)
         rising_segs = [(s, e) for (s, e) in runs if (e - s + 1) >= min_len]
+
+        drop_mask = slopes < drop_slope_thresh
+        drop_runs = self.find_true_runs(drop_mask)
+        drop_segs = [(s, e) for (s, e) in drop_runs if (e - s + 1) >= min_len]
 
         def count_segments_in_window(seg_list, lo, hi):
             return [seg for seg in seg_list if (seg[0] >= lo and seg[1] <= hi)]
@@ -177,7 +187,12 @@ class RuKeService(BaseService):
         segs_win2 = count_segments_in_window(rising_segs, win2_lo, win2_hi)
 
         if len(segs_win1) != 1 or len(segs_win2) != 2:
-            return station_res
+            return {
+            "status": "Unknown",
+            "rising_segments": None,
+            "all_segments": None,
+            "pressures": None
+        }
 
         first_seg = sorted(segs_win1, key=lambda t: t[0])[0]
         win2_sorted = sorted(segs_win2, key=lambda t: t[0])
@@ -205,14 +220,14 @@ class RuKeService(BaseService):
                 e2 = max(0, min(e_clamped, L - 1))
                 if s2 > e2:
                     return np.array([], dtype=float)
-                return np.abs(a[s2:e2 + 1])
+                return a[s2:e2 + 1]
 
             seg_a1 = slice_arr(a1)
             seg_a2 = slice_arr(a2)
             if seg_a1.size == 0 and seg_a2.size == 0:
                 return {"max": None, "slope": None, "arr1": [], "arr2": []}
-            m1 = float(np.nanmax(seg_a1)) if seg_a1.size > 0 else 0
-            m2 = float(np.nanmax(seg_a2)) if seg_a2.size > 0 else 0
+            m1 = float(np.nanmax(np.abs(seg_a1))) if seg_a1.size > 0 else 0
+            m2 = float(np.nanmax(np.abs(seg_a2))) if seg_a2.size > 0 else 0
 
             def seg_slope(seg):
                 if seg.size < 2:
@@ -252,8 +267,8 @@ class RuKeService(BaseService):
         base_dir = os.path.join("services/rk_process_analysis_service/data", device_code)
         station_dir = os.path.join(base_dir, f"station{station}")
         os.makedirs(station_dir, exist_ok=True)
-        model1_path = os.path.join(station_dir, "arr1_kshape_model.json")
-        model2_path = os.path.join(station_dir, "arr2_kshape_model.json")
+        model1_path = os.path.join(station_dir, "slope_arr1_rising_1_kshape_model.json")
+        model2_path = os.path.join(station_dir, "slope_arr2_rising_1_kshape_model.json")
 
         with open(model1_path, 'r', encoding='utf-8') as file:
             model1 = json.load(file)
@@ -278,23 +293,23 @@ class RuKeService(BaseService):
                 'range': (1, seg1p[1])
             },
             {
-                'label': '静置',
-                'range': (seg1p[1] + 1, 71)
+                'label': '静置0',
+                'range': (seg1p[1] + 1, drop_segs[0][0])
             },
             {
-                'label': '回退',
-                'range': (72, 98)
+                'label': '回退0',
+                'range': (drop_segs[0][0]+1, drop_segs[0][1])
             },
             {
-                'label': '静置2',
-                'range': (99, seg2p[0])
+                'label': '静置1',
+                'range': (drop_segs[0][1]+1, seg2p[0])
             },
             {
                 'label': '前进推15%',
                 'range': (seg2p[0] + 1, seg2p[1])
             },
             {
-                'label': '静置3',
+                'label': '静置2',
                 'range': (seg2p[1] + 1, seg3p[0])
             },
             {
@@ -314,8 +329,8 @@ class RuKeService(BaseService):
         base_dir = os.path.join("services/rk_process_analysis_service/data", device_code)
         station_dir = os.path.join(base_dir, f"station{station}")
         os.makedirs(station_dir, exist_ok=True)
-        model1_path = os.path.join(station_dir, "arr1_kshape_model.json")
-        model2_path = os.path.join(station_dir, "arr2_kshape_model.json")
+        model1_path = os.path.join(station_dir, "slope_arr1_rising_1_kshape_model.json")
+        model2_path = os.path.join(station_dir, "slope_arr2_rising_1_kshape_model.json")
 
         with open(model1_path, 'r', encoding='utf-8') as file:
             model1 = json.load(file)
@@ -359,9 +374,23 @@ class RuKeService(BaseService):
             position_arr = position_arr[start_idx:] if position_arr.size > start_idx else np.array([], dtype=float)
 
             threshold_detect_result = self.threshold_detect(arr1, arr2, position_arr, st, device_code)
-            series_detect_result = self.series_detect(arr1, arr2, st, device_code)
-
-            status = "NG" if threshold_detect_result.get('status') == "NG" or series_detect_result.get('status') == "NG" else "OK"
+            rising_segs = threshold_detect_result.get('rising_segments')
+            if rising_segs:
+                def seg_slope(seg):
+                    if seg.size < 2:
+                        return 0.0
+                    n = seg.size
+                    slopes = np.zeros(n, dtype=float)
+                    slopes[-1] = (seg[-1] - seg[-2])
+                    for i in range(0, n - 1):
+                        slopes[i] = (seg[i + 1] - seg[i]) / 1.0
+                    return slopes
+                slope_arr1 = seg_slope(arr1[:rising_segs[0][1]+1])
+                slope_arr2 = seg_slope(arr2[:rising_segs[0][1]+1])
+                series_detect_result = self.series_detect(slope_arr1, slope_arr2, st, device_code)
+                status = threshold_detect_result.get('status') #"NG" if threshold_detect_result.get('status') == "NG" or series_detect_result.get('status') == "NG" else "OK"
+            else:
+                status = "Unknown"
 
             station_res = {
                 "station": st,

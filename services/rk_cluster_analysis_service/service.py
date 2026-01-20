@@ -11,7 +11,7 @@ class RuKeClusterService(BaseService):
     def __init__(self, db_client=None):
         self.db_client = db_client
         self._ready = False
-        self.table = 'iot_rkdh_process'
+        self.table = 'ai_iot_rkdh_process'
         self.n_clusters = 3
         self.target_len = 0
 
@@ -87,7 +87,7 @@ class RuKeClusterService(BaseService):
         mid = len(lengths) // 2
         return lengths[mid] if len(lengths) % 2 == 1 else max(1, (lengths[mid - 1] + lengths[mid]) // 2)
 
-    def do_kshape_clustering(self, arrays: List[np.ndarray], gaibans: List[str]):
+    def do_kshape_clustering(self, arrays: List[np.ndarray], gaibans: List[str], status: List[str]):
         result = {
             "labels": [],
             "centers": [],
@@ -101,7 +101,6 @@ class RuKeClusterService(BaseService):
             tgt = max(1, int(np.median([a.size for a in arrays])))
 
         X = self.resample_list(arrays, tgt)  # shape (n, tgt)
-        # z-normalize per series
         Xz = np.vstack([(row - np.mean(row)) / (np.std(row) if np.std(row) > 0 else 1.0) for row in X])
         k = max(1, min(self.n_clusters, Xz.shape[0]))
 
@@ -109,19 +108,109 @@ class RuKeClusterService(BaseService):
         labels_arr = ks.fit_predict(Xz)
         centers = ks.cluster_centers_.squeeze().tolist()
 
+        centers_raw = []
+        for c in range(k):
+            members = np.where(labels_arr == c)[0]
+            if members.size == 0:
+                centers_raw.append([None] * X.shape[1])
+            else:
+                mean_raw = np.mean(X[members, :], axis=0)
+                centers_raw.append(mean_raw.tolist())
+
         labels_out = []
         counts = {}
         for i, g in enumerate(gaibans):
             lbl = int(labels_arr[i])
-            labels_out.append({"gaiban": g, "label": lbl, "series": arrays[i].tolist()})
+            flag = 0 if status[i] == "OK" else 1
+            labels_out.append({"gaiban": g, "label": lbl, "series": arrays[i].tolist(), "abnormal": flag})
             counts[lbl] = counts.get(lbl, 0) + 1
 
         result.update({
             "labels": labels_out,
-            "centers": centers,
+            "centers": centers_raw,
             "label_counts": counts
         })
         return result
+
+    # def cluster_analysis(self, payload):
+    #     device_code = payload.get("DEVICECODE")
+    #     start_time = payload.get("STARTTIME")
+    #     end_time = payload.get("ENDTIME")
+    #     station_idx = int(payload.get("STATIONIDX"))
+    #
+    #     gaiban_code, p1_key, p2_key, position_key = self.station_pressure_fields(station_idx)
+    #
+    #     sql = text(f"""
+    #                 SELECT devicetime, `{gaiban_code}` AS gaiban_code, `{p1_key}` AS p1, `{p2_key}` AS p2, `{position_key}` AS pos
+    #                 FROM `{self.table}`
+    #                 WHERE devicecode = :device_code
+    #                   AND devicetime BETWEEN :start_time AND :end_time
+    #                 ORDER BY devicetime ASC
+    #             """)
+    #
+    #     try:
+    #         df = self.db_client.read_sql(sql, params={"device_code": device_code, "start_time": start_time, "end_time": end_time})
+    #     except Exception as e:
+    #         raise HTTPException(status_code=500, detail=f"数据库查询失败: {e}")
+    #
+    #     if df.empty:
+    #         raise HTTPException(status_code=404, detail="未查询到任何数据")
+    #
+    #     seen = set()
+    #     samples = {}
+    #     for _, row in df.iterrows():
+    #         raw_gaiban = row.get("gaiban_code")
+    #         if raw_gaiban == "":
+    #             continue
+    #         if raw_gaiban in seen:
+    #             continue
+    #         seen.add(raw_gaiban)
+    #
+    #         raw_p1 = row.get("p1") if "p1" in row else row.get(p1_key)
+    #         raw_p2 = row.get("p2") if "p2" in row else row.get(p2_key)
+    #         raw_pos = row.get("pos") if "pos" in row else row.get(position_key)
+    #
+    #         a1 = self.safe_to_float_array(raw_p1)
+    #         a2 = self.safe_to_float_array(raw_p2)
+    #         ap = self.safe_to_float_array(raw_pos)
+    #
+    #         if a1.size > 0:
+    #             a1 = np.array(list(reversed(a1.tolist())), dtype=float)
+    #         if a2.size > 0:
+    #             a2 = np.array(list(reversed(a2.tolist())), dtype=float)
+    #         if ap.size > 0:
+    #             ap = np.array(list(reversed(ap.tolist())), dtype=float)
+    #
+    #         samples[raw_gaiban] = {"p1": a1, "p2": a2, "pos": ap}
+    #
+    #     if len(samples) == 0:
+    #         raise HTTPException(status_code=404, detail="未查询到任何数据")
+    #
+    #     def collect_for_key(key_name: str):
+    #         arrs = []
+    #         gaibans = []
+    #         for g, d in samples.items():
+    #             arr = d.get(key_name)
+    #             if arr is None or arr.size == 0:
+    #                 continue
+    #             arrs.append(arr)
+    #             gaibans.append(g)
+    #         return arrs, gaibans
+    #
+    #     arr1_list, gaibans_arr1 = collect_for_key("p1")
+    #     arr2_list, gaibans_arr2 = collect_for_key("p2")
+    #     pos_list, gaibans_pos = collect_for_key("pos")
+    #
+    #     clusters = {}
+    #     clusters["arr1"] = self.do_kshape_clustering(arr1_list, gaibans_arr1)
+    #     clusters["arr2"] = self.do_kshape_clustering(arr2_list, gaibans_arr2)
+    #     clusters["position_arr"] = self.do_kshape_clustering(pos_list, gaibans_pos)
+    #
+    #     return {
+    #         "device_code": device_code,
+    #         "station_idx": station_idx,
+    #         "clusters": clusters
+    #     }
 
     def cluster_analysis(self, payload):
         device_code = payload.get("DEVICECODE")
@@ -129,50 +218,38 @@ class RuKeClusterService(BaseService):
         end_time = payload.get("ENDTIME")
         station_idx = int(payload.get("STATIONIDX"))
 
-        gaiban_code, p1_key, p2_key, position_key = self.station_pressure_fields(station_idx)
-
         sql = text(f"""
-                    SELECT devicetime, `{gaiban_code}` AS gaiban_code, `{p1_key}` AS p1, `{p2_key}` AS p2, `{position_key}` AS pos
-                    FROM `{self.table}`
-                    WHERE devicecode = :device_code
-                      AND devicetime BETWEEN :start_time AND :end_time
-                    ORDER BY devicetime ASC
-                """)
+                            SELECT devicecode, devicetime, station, gaiban_code, status, pressure1_series, pressure2_series, position_series
+                            FROM `{self.table}`
+                            WHERE devicecode = :device_code
+                              AND station = :station_idx
+                              AND devicetime BETWEEN :start_time AND :end_time
+                            ORDER BY devicetime ASC
+                        """)
 
         try:
-            df = self.db_client.read_sql(sql, params={"device_code": device_code, "start_time": start_time, "end_time": end_time})
+            df = self.db_client.read_sql(sql, params={"device_code": device_code, "station_idx": station_idx, "start_time": start_time,
+                                                      "end_time": end_time})
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"数据库查询失败: {e}")
 
         if df.empty:
             raise HTTPException(status_code=404, detail="未查询到任何数据")
 
-        seen = set()
         samples = {}
+
         for _, row in df.iterrows():
+            status = row.get("status")
             raw_gaiban = row.get("gaiban_code")
-            if raw_gaiban == "":
+            rising_segments = row.get("rising_segments")
+            if not rising_segments:
                 continue
-            if raw_gaiban in seen:
-                continue
-            seen.add(raw_gaiban)
 
-            raw_p1 = row.get("p1") if "p1" in row else row.get(p1_key)
-            raw_p2 = row.get("p2") if "p2" in row else row.get(p2_key)
-            raw_pos = row.get("pos") if "pos" in row else row.get(position_key)
+            arr1 = json.loads(row.get('pressure1_series'))
+            arr2 = json.loads(row.get('pressure2_series'))
+            position_arr = json.loads(row.get('position_series'))
 
-            a1 = self.safe_to_float_array(raw_p1)
-            a2 = self.safe_to_float_array(raw_p2)
-            ap = self.safe_to_float_array(raw_pos)
-
-            if a1.size > 0:
-                a1 = np.array(list(reversed(a1.tolist())), dtype=float)
-            if a2.size > 0:
-                a2 = np.array(list(reversed(a2.tolist())), dtype=float)
-            if ap.size > 0:
-                ap = np.array(list(reversed(ap.tolist())), dtype=float)
-
-            samples[raw_gaiban] = {"p1": a1, "p2": a2, "pos": ap}
+            samples[raw_gaiban] = {"p1": np.array(arr1), "p2": np.array(arr2), "pos": np.array(position_arr), "status": status}
 
         if len(samples) == 0:
             raise HTTPException(status_code=404, detail="未查询到任何数据")
@@ -182,7 +259,7 @@ class RuKeClusterService(BaseService):
             gaibans = []
             for g, d in samples.items():
                 arr = d.get(key_name)
-                if arr is None or arr.size == 0:
+                if arr is None:# or arr.size == 0:
                     continue
                 arrs.append(arr)
                 gaibans.append(g)
@@ -191,14 +268,31 @@ class RuKeClusterService(BaseService):
         arr1_list, gaibans_arr1 = collect_for_key("p1")
         arr2_list, gaibans_arr2 = collect_for_key("p2")
         pos_list, gaibans_pos = collect_for_key("pos")
+        status_list, _ = collect_for_key("status")
 
         clusters = {}
-        clusters["arr1"] = self.do_kshape_clustering(arr1_list, gaibans_arr1)
-        clusters["arr2"] = self.do_kshape_clustering(arr2_list, gaibans_arr2)
-        clusters["position_arr"] = self.do_kshape_clustering(pos_list, gaibans_pos)
+        clusters["arr1"] = self.do_kshape_clustering(arr1_list, gaibans_arr1, status_list)
+        clusters["arr2"] = self.do_kshape_clustering(arr2_list, gaibans_arr2, status_list)
+        clusters["position_arr"] = self.do_kshape_clustering(pos_list, gaibans_pos, status_list)
 
         return {
             "device_code": device_code,
             "station_idx": station_idx,
             "clusters": clusters
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

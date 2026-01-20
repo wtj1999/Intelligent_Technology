@@ -24,9 +24,18 @@ app.include_router(rk_train_router, prefix="/rk_train", tags=["rk_train"])
 async def startup():
     app.state.kafka_client = KafkaClient()
     app.state.db_client = DBClient()
+    app.state.db_client_v1 = DBClient(
+        db_config={
+            "host": "10.38.30.216",
+            "port": 19030,
+            "user": "gdmo_aid",
+            "password": "gdmo_aid@123!!",
+            "database": "ai_iot",
+        }
+    )
     register_rk(factory, settings=settings, kafka_client=app.state.kafka_client, **service_kwargs)
-    register_rk_cluster(factory, settings=settings, db_client=app.state.db_client, **service_kwargs)
-    register_rk_train(factory, settings=settings, db_client=app.state.db_client, **service_kwargs)
+    register_rk_cluster(factory, settings=settings, db_client=app.state.db_client_v1, **service_kwargs)
+    register_rk_train(factory, settings=settings, db_client=app.state.db_client_v1, **service_kwargs)
 
     await factory.startup_all()
 
