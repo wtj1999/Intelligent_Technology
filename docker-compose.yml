@@ -3,7 +3,7 @@ version: "3.7"
 
 services:
   app:
-    build: .
+    #build: .
     image: intelligent_technology:latest
     container_name: intelligent_technology
     restart: always
