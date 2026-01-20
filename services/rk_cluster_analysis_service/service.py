@@ -219,7 +219,7 @@ class RuKeClusterService(BaseService):
         station_idx = int(payload.get("STATIONIDX"))
 
         sql = text(f"""
-                            SELECT devicecode, devicetime, station, gaiban_code, status, pressure1_series, pressure2_series, position_series
+                            SELECT devicecode, devicetime, station, gaiban_code, status, rising_segments, pressure1_series, pressure2_series, position_series
                             FROM `{self.table}`
                             WHERE devicecode = :device_code
                               AND station = :station_idx
