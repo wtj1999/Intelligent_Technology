@@ -53,6 +53,8 @@ class StationResult(BaseModel):
     pressure1_series: List[float] = Field(default_factory=list)
     pressure2_series: List[float] = Field(default_factory=list)
     position_series: List[float] = Field(default_factory=list)
+    up_distance: Optional[float] = None
+    down_distance: Optional[float] = None
 
 
 class RuKeResponse(BaseModel):

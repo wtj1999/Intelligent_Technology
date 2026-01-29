@@ -104,7 +104,7 @@ class RuKeClusterService(BaseService):
         Xz = np.vstack([(row - np.mean(row)) / (np.std(row) if np.std(row) > 0 else 1.0) for row in X])
         k = max(1, min(self.n_clusters, Xz.shape[0]))
 
-        ks = KShape(n_clusters=k)
+        ks = KShape(n_clusters=k, n_init=10, random_state=42)
         labels_arr = ks.fit_predict(Xz)
         centers = ks.cluster_centers_.squeeze().tolist()
 
@@ -131,86 +131,6 @@ class RuKeClusterService(BaseService):
             "label_counts": counts
         })
         return result
-
-    # def cluster_analysis(self, payload):
-    #     device_code = payload.get("DEVICECODE")
-    #     start_time = payload.get("STARTTIME")
-    #     end_time = payload.get("ENDTIME")
-    #     station_idx = int(payload.get("STATIONIDX"))
-    #
-    #     gaiban_code, p1_key, p2_key, position_key = self.station_pressure_fields(station_idx)
-    #
-    #     sql = text(f"""
-    #                 SELECT devicetime, `{gaiban_code}` AS gaiban_code, `{p1_key}` AS p1, `{p2_key}` AS p2, `{position_key}` AS pos
-    #                 FROM `{self.table}`
-    #                 WHERE devicecode = :device_code
-    #                   AND devicetime BETWEEN :start_time AND :end_time
-    #                 ORDER BY devicetime ASC
-    #             """)
-    #
-    #     try:
-    #         df = self.db_client.read_sql(sql, params={"device_code": device_code, "start_time": start_time, "end_time": end_time})
-    #     except Exception as e:
-    #         raise HTTPException(status_code=500, detail=f"数据库查询失败: {e}")
-    #
-    #     if df.empty:
-    #         raise HTTPException(status_code=404, detail="未查询到任何数据")
-    #
-    #     seen = set()
-    #     samples = {}
-    #     for _, row in df.iterrows():
-    #         raw_gaiban = row.get("gaiban_code")
-    #         if raw_gaiban == "":
-    #             continue
-    #         if raw_gaiban in seen:
-    #             continue
-    #         seen.add(raw_gaiban)
-    #
-    #         raw_p1 = row.get("p1") if "p1" in row else row.get(p1_key)
-    #         raw_p2 = row.get("p2") if "p2" in row else row.get(p2_key)
-    #         raw_pos = row.get("pos") if "pos" in row else row.get(position_key)
-    #
-    #         a1 = self.safe_to_float_array(raw_p1)
-    #         a2 = self.safe_to_float_array(raw_p2)
-    #         ap = self.safe_to_float_array(raw_pos)
-    #
-    #         if a1.size > 0:
-    #             a1 = np.array(list(reversed(a1.tolist())), dtype=float)
-    #         if a2.size > 0:
-    #             a2 = np.array(list(reversed(a2.tolist())), dtype=float)
-    #         if ap.size > 0:
-    #             ap = np.array(list(reversed(ap.tolist())), dtype=float)
-    #
-    #         samples[raw_gaiban] = {"p1": a1, "p2": a2, "pos": ap}
-    #
-    #     if len(samples) == 0:
-    #         raise HTTPException(status_code=404, detail="未查询到任何数据")
-    #
-    #     def collect_for_key(key_name: str):
-    #         arrs = []
-    #         gaibans = []
-    #         for g, d in samples.items():
-    #             arr = d.get(key_name)
-    #             if arr is None or arr.size == 0:
-    #                 continue
-    #             arrs.append(arr)
-    #             gaibans.append(g)
-    #         return arrs, gaibans
-    #
-    #     arr1_list, gaibans_arr1 = collect_for_key("p1")
-    #     arr2_list, gaibans_arr2 = collect_for_key("p2")
-    #     pos_list, gaibans_pos = collect_for_key("pos")
-    #
-    #     clusters = {}
-    #     clusters["arr1"] = self.do_kshape_clustering(arr1_list, gaibans_arr1)
-    #     clusters["arr2"] = self.do_kshape_clustering(arr2_list, gaibans_arr2)
-    #     clusters["position_arr"] = self.do_kshape_clustering(pos_list, gaibans_pos)
-    #
-    #     return {
-    #         "device_code": device_code,
-    #         "station_idx": station_idx,
-    #         "clusters": clusters
-    #     }
 
     def cluster_analysis(self, payload):
         device_code = payload.get("DEVICECODE")

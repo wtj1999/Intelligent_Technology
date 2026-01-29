@@ -4,7 +4,7 @@ import os
 import logging
 from services.base import BaseService
 from typing import Any, Dict, List, Optional, Tuple
-
+from tslearn.metrics import dtw, cdist_dtw
 logger = logging.getLogger(__name__)
 
 class RuKeService(BaseService):
@@ -14,6 +14,7 @@ class RuKeService(BaseService):
         self.max_thresh = 10.0
         self.first_up_pressure_slope_thresh = 0.57
         self.first_down_pressure_slope_thresh = 0.68
+        self.distance_measure = "dtw"
 
     async def startup(self) -> None:
         self._ready = True
@@ -140,7 +141,16 @@ class RuKeService(BaseService):
             return {"score": float("inf"), "is_anomaly": True, "reason": "empty_series"}
         s_rs = self.resample_series(s, target_len)
         s_z = self.z_normalize(s_rs)
-        dists = np.linalg.norm(centers - s_z, axis=1)
+
+        if self.distance_measure == "euclidean":
+            dists = np.linalg.norm(centers - s_z, axis=1)
+        elif self.distance_measure == "cosine":
+            dists = 1.0 - np.dot(s_z, centers.T) / (np.linalg.norm(s_z) * np.linalg.norm(centers, axis=1))
+        elif self.distance_measure == "sdb":
+            pass
+        elif self.distance_measure == "dtw":
+            dists = cdist_dtw(centers, s_z).ravel()
+
         score = float(np.min(dists))
         is_anom = score > float(model["threshold"])
         return {"score": score, "threshold": float(model["threshold"]), "is_anomaly": bool(is_anom),
@@ -345,7 +355,11 @@ class RuKeService(BaseService):
         combined_threshold = max(model1["threshold"], model2["threshold"])
         is_anom = 'NG' if combined_score > combined_threshold else 'OK'
 
-        return {"status": is_anom}
+        return {
+            "status": is_anom,
+            "up_distance": r1["score"],
+            "down_distance": r2["score"]
+        }
 
     def rk_analysis(self, payload):
         device_code = payload.get("DEVICECODE")
@@ -374,6 +388,7 @@ class RuKeService(BaseService):
             position_arr = position_arr[start_idx:] if position_arr.size > start_idx else np.array([], dtype=float)
 
             threshold_detect_result = self.threshold_detect(arr1, arr2, position_arr, st, device_code)
+            series_detect_result = None
             rising_segs = threshold_detect_result.get('rising_segments')
             if rising_segs:
                 def seg_slope(seg):
@@ -401,7 +416,9 @@ class RuKeService(BaseService):
                 "pressures": threshold_detect_result.get('pressures'),
                 "pressure1_series": list(arr1),
                 "pressure2_series": list(arr2),
-                "position_series": list(position_arr)
+                "position_series": list(position_arr),
+                "up_distance": series_detect_result.get('up_distance') if series_detect_result else None,
+                "down_distance": series_detect_result.get('down_distance') if series_detect_result else None,
             }
 
             pkg["stations"].append(station_res)
