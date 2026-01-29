@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import text
 from fastapi import HTTPException
 from tslearn.clustering import KShape
+from datetime import datetime, timedelta
 
 
 class RuKeClusterService(BaseService):
@@ -104,7 +105,7 @@ class RuKeClusterService(BaseService):
         Xz = np.vstack([(row - np.mean(row)) / (np.std(row) if np.std(row) > 0 else 1.0) for row in X])
         k = max(1, min(self.n_clusters, Xz.shape[0]))
 
-        ks = KShape(n_clusters=k, n_init=10, random_state=42)
+        ks = KShape(n_clusters=k, n_init=3, random_state=42)
         labels_arr = ks.fit_predict(Xz)
         centers = ks.cluster_centers_.squeeze().tolist()
 
@@ -137,6 +138,11 @@ class RuKeClusterService(BaseService):
         start_time = payload.get("STARTTIME")
         end_time = payload.get("ENDTIME")
         station_idx = int(payload.get("STATIONIDX"))
+        gaiban_codes = payload.get("GAIBANCODES")
+
+        fmt = "%Y-%m-%d %H:%M:%S"
+        start_dt = datetime.strptime(start_time, fmt) - timedelta(hours=3)
+        end_dt = datetime.strptime(end_time, fmt) + timedelta(hours=3)
 
         sql = text(f"""
                             SELECT devicecode, devicetime, station, gaiban_code, status, rising_segments, pressure1_series, pressure2_series, position_series
@@ -144,12 +150,13 @@ class RuKeClusterService(BaseService):
                             WHERE devicecode = :device_code
                               AND station = :station_idx
                               AND devicetime BETWEEN :start_time AND :end_time
+                              AND gaiban_code IN :gaiban_codes
                             ORDER BY devicetime ASC
                         """)
 
         try:
-            df = self.db_client.read_sql(sql, params={"device_code": device_code, "station_idx": station_idx, "start_time": start_time,
-                                                      "end_time": end_time})
+            df = self.db_client.read_sql(sql, params={"device_code": device_code, "station_idx": station_idx, "start_time": start_dt.strftime(fmt),
+                                                      "end_time": end_dt.strftime(fmt), "gaiban_codes": gaiban_codes})
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"数据库查询失败: {e}")
 
