@@ -11,8 +11,6 @@ class RuKeRecommendService(BaseService):
         self.db_client = db_client
         self._ready = False
         self.table = 'ai_iot_rkdh_process'
-        self.n_clusters = 3
-        self.target_len = 0
 
     async def startup(self) -> None:
         self._ready = True
