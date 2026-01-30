@@ -5,6 +5,7 @@ class RuKeQuery(BaseModel):
     DEVICECODE: str = Field(..., description="设备编码")
     DEVICETIME: str = Field(..., description="设备时间")
     TENANTID: str = Field(..., description="租户ID")
+    technics_line_code: int = Field(..., description="工艺线编码")
     PRKDH001: str = Field(..., description="工位1盖板码")
     PRKDH002: str = Field(..., description="工位2盖板码")
     PRKDH003: str = Field(..., description="工位3盖板码")
@@ -61,4 +62,5 @@ class RuKeResponse(BaseModel):
     device_code: Optional[str] = None
     device_time: Optional[str] = None
     tenant: Optional[str] = None
+    technics_line_code: Optional[int] = None
     stations: List[StationResult] = Field(default_factory=list)

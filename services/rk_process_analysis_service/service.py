@@ -365,11 +365,13 @@ class RuKeService(BaseService):
         device_code = payload.get("DEVICECODE")
         device_time = payload.get("DEVICETIME")
         tenant = payload.get("TENANTID")
+        technics_line_code = payload.get("technics_line_code")
 
         pkg = {
             "device_code": device_code,
             "device_time": device_time,
             "tenant": tenant,
+            "technics_line_code": technics_line_code,
             "stations": [],
         }
 
